@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Raptor Trompos</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #4a3420; font-family: system-ui, sans-serif; }
+  canvas { display: block; position: absolute; inset: 0; }
+  #panel {
+    position: absolute; top: 12px; left: 12px; z-index: 10;
+    background: rgba(20, 14, 8, .78); color: #f4e9dc;
+    padding: 12px 14px; border-radius: 10px; font-size: 13px;
+    display: flex; flex-direction: column; gap: 8px; width: 210px;
+  }
+  #panel h1 { font-size: 16px; margin: 0; color: #ff7a1a; letter-spacing: .5px; }
+  label { display: flex; flex-direction: column; gap: 3px; }
+  input[type=range] { width: 100%; accent-color: #ff7a1a; }
+  .fila { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  button {
+    background: #ff7a1a; border: none; color: #1a1008; font-weight: 700;
+    padding: 6px 9px; border-radius: 6px; cursor: pointer; font-size: 12px;
+  }
+  button:hover { background: #ff9445; }
+  #ocultar { position: absolute; top: 12px; right: 12px; z-index: 10; }
+</style>
+</head>
+<body>
+
+<canvas id="suelo"></canvas>
+<canvas id="marcas"></canvas>
+<canvas id="escena"></canvas>
+
+<div id="panel">
+  <h1>RAPTOR · TROMPOS</h1>
+  <label>Velocidad <input id="vel" type="range" min="0.6" max="4" step="0.1" value="2.2"></label>
+  <label>Radio del trompo <input id="radio" type="range" min="0" max="100" value="45"></label>
+  <label>Derrape <input id="derrape" type="range" min="0.2" max="1.4" step="0.05" value="0.9"></label>
+  <div class="fila">
+    Color <input id="color" type="color" value="#ff6a13">
+  </div>
+  <div class="fila">
+    <button id="btnDir">Cambiar sentido</button>
+    <button id="btnPausa">Pausa</button>
+    <button id="btnLimpiar">Borrar marcas</button>
+    <button id="btnSonido">Motor: OFF</button>
+  </div>
+</div>
+<button id="ocultar">Ocultar panel</button>
+
+<script>
+// ===================== Canvas =====================
+const cvSuelo  = document.getElementById('suelo');
+const cvMarcas = document.getElementById('marcas');
+const cvEscena = document.getElementById('escena');
+const ctxS = cvSuelo.getContext('2d');
+const ctxM = cvMarcas.getContext('2d');
+const ctx  = cvEscena.getContext('2d');
+
+let W, H, cx, cy, radioMin, radioMax;
+
+function redimensionar() {
+  W = innerWidth; H = innerHeight;
+  [cvSuelo, cvMarcas, cvEscena].forEach(c => { c.width = W; c.height = H; });
+  cx = W / 2; cy = H / 2;
+  const m = Math.min(W, H);
+  radioMin = m * 0.12;
+  radioMax = m * 0.32;
+  dibujarSuelo();
+}
+
+// Rectángulo redondeado (compatible con navegadores viejos)
+function rr(c, x, y, w, h, r) {
+  c.beginPath();
+  c.moveTo(x + r, y);
+  c.arcTo(x + w, y, x + w, y + h, r);
+  c.arcTo(x + w, y + h, x, y + h, r);
+  c.arcTo(x, y + h, x, y, r);
+  c.arcTo(x, y, x + w, y, r);
+  c.closePath();
+}
+
+// ===================== Suelo de tierra =====================
+function dibujarSuelo() {
+  const g = ctxS.createRadialGradient(cx, cy, 50, cx, cy, Math.max(W, H) * 0.7);
+  g.addColorStop(0, '#8a6a45');
+  g.addColorStop(1, '#4e3822');
+  ctxS.fillStyle = g;
+  ctxS.fillRect(0, 0, W, H);
+
+  // Granitos y piedritas
+  for (let i = 0; i < (W * H) / 120; i++) {
+    const x = Math.random() * W, y = Math.random() * H;
+    const claro = Math.random() < 0.5;
+    ctxS.fillStyle = claro ? 'rgba(220,190,150,0.10)' : 'rgba(40,25,10,0.12)';
+    ctxS.fillRect(x, y, 1 + Math.random() * 2, 1 + Math.random() * 2);
+  }
+  for (let i = 0; i < 70; i++) {
+    ctxS.fillStyle = 'rgba(160,140,120,0.5)';
+    ctxS.beginPath();
+    ctxS.arc(Math.random() * W, Math.random() * H, 1.5 + Math.random() * 3, 0, Math.PI * 2);
+    ctxS.fill();
+  }
+
+  // Conos alrededor de la pista
+  const rc = Math.min(W, H) * 0.44;
+  for (let i = 0; i < 14; i++) {
+    const a = (i / 14) * Math.PI * 2;
+    const x = cx + Math.cos(a) * rc, y = cy + Math.sin(a) * rc;
+    ctxS.fillStyle = 'rgba(0,0,0,0.3)';
+    ctxS.beginPath(); ctxS.arc(x + 3, y + 3, 9, 0, Math.PI * 2); ctxS.fill();
+    ctxS.fillStyle = '#ff5a00';
+    ctxS.beginPath(); ctxS.arc(x, y, 9, 0, Math.PI * 2); ctxS.fill();
+    ctxS.fillStyle = '#fff';
+    ctxS.beginPath(); ctxS.arc(x, y, 5, 0, Math.PI * 2); ctxS.fill();
+    ctxS.fillStyle = '#ff5a00';
+    ctxS.beginPath(); ctxS.arc(x, y, 2.5, 0, Math.PI * 2); ctxS.fill();
+  }
+}
+
+// ===================== Estado =====================
+let angulo = 0;          // posición sobre el círculo
+let sentido = 1;         // 1 = antihorario, -1 = horario
+let radioActual = 150;
+let pausado = false;
+let colorCamioneta = '#ff6a13';
+let tiempo = 0;
+let ruedasPrevias = null;
+let particulas = [];
+let contadorFrames = 0;
+
+const inVel = document.getElementById('vel');
+const inRadio = document.getElementById('radio');
+const inDerrape = document.getElementById('derrape');
+
+// ===================== Dibujo de la camioneta (vista desde arriba) =====================
+// Medidas locales: x hacia el frente, y hacia los lados
+const LARGO = 136, ANCHO = 64;
+const RUEDAS = [
+  { x:  40, y: -30, frente: true },
+  { x:  40, y:  30, frente: true },
+  { x: -40, y: -30, frente: false },
+  { x: -40, y:  30, frente: false },
+];
+
+function aclarar(hex, cant) {
+  const n = parseInt(hex.slice(1), 16);
+  let r = (n >> 16) + cant, g = ((n >> 8) & 255) + cant, b = (n & 255) + cant;
+  r = Math.max(0, Math.min(255, r)); g = Math.max(0, Math.min(255, g)); b = Math.max(0, Math.min(255, b));
+  return `rgb(${r},${g},${b})`;
+}
+
+function dibujarRueda(c, x, y, giro) {
+  c.save();
+  c.translate(x, y);
+  c.rotate(giro);
+  c.fillStyle = '#111';
+  rr(c, -15, -8, 30, 16, 4); c.fill();
+  c.strokeStyle = '#2a2a2a'; c.lineWidth = 2;
+  for (let i = -12; i <= 12; i += 5) {
+    c.beginPath(); c.moveTo(i, -8); c.lineTo(i + 2, 8); c.stroke();
+  }
+  c.restore();
+}
+
+function dibujarCamioneta(c, giroDelantero) {
+  const col = colorCamioneta;
+  const L = LARGO / 2, A = ANCHO / 2;
+
+  // Sombra
+  c.fillStyle = 'rgba(0,0,0,0.35)';
+  rr(c, -L + 7, -A + 7, LARGO, ANCHO, 12); c.fill();
+
+  // Llantas
+  RUEDAS.forEach(r => dibujarRueda(c, r.x, r.y, r.frente ? giroDelantero : 0));
+
+  // Salpicaderas anchas (negras, estilo off-road)
+  c.fillStyle = '#1c1c1c';
+  RUEDAS.forEach(r => {
+    rr(c, r.x - 19, r.y < 0 ? -A - 3 : A - 9, 38, 12, 5); c.fill();
+  });
+
+  // Carrocería
+  c.fillStyle = col;
+  rr(c, -L, -A + 4, LARGO, ANCHO - 8, 10); c.fill();
+
+  // Caja (batea)
+  c.fillStyle = aclarar(col, -70);
+  rr(c, -L + 5, -A + 9, 50, ANCHO - 18, 4); c.fill();
+  c.strokeStyle = aclarar(col, -95); c.lineWidth = 2;
+  for (let i = -L + 13; i < -L + 52; i += 9) {
+    c.beginPath(); c.moveTo(i, -A + 11); c.lineTo(i, A - 11); c.stroke();
+  }
+
+  // Cabina
+  c.fillStyle = aclarar(col, 15);
+  rr(c, -12, -A + 7, 40, ANCHO - 14, 8); c.fill();
+
+  // Vidrio trasero
+  c.fillStyle = '#1d2a33';
+  rr(c, -15, -A + 10, 5, ANCHO - 20, 2); c.fill();
+
+  // Parabrisas
+  c.beginPath();
+  c.moveTo(28, -A + 9); c.lineTo(42, -A + 12);
+  c.lineTo(42, A - 12); c.lineTo(28, A - 9);
+  c.closePath();
+  const vg = c.createLinearGradient(28, 0, 42, 0);
+  vg.addColorStop(0, '#2b3d4a'); vg.addColorStop(1, '#5d7a8c');
+  c.fillStyle = vg; c.fill();
+
+  // Luces ámbar en el techo
+  c.fillStyle = '#ffb300';
+  [-8, 0, 8].forEach(yy => { c.beginPath(); c.arc(25, yy, 2, 0, Math.PI * 2); c.fill(); });
+
+  // Cofre con ventilas
+  c.fillStyle = '#151515';
+  rr(c, 48, -14, 12, 4, 2); c.fill();
+  rr(c, 48, 10, 12, 4, 2); c.fill();
+  c.strokeStyle = aclarar(col, -40); c.lineWidth = 1.5;
+  c.beginPath(); c.moveTo(44, -A + 8); c.lineTo(L - 4, -A + 10); c.stroke();
+  c.beginPath(); c.moveTo(44, A - 8); c.lineTo(L - 4, A - 10); c.stroke();
+
+  // Parrilla y defensa
+  c.fillStyle = '#111';
+  rr(c, L - 5, -A + 6, 8, ANCHO - 12, 3); c.fill();
+  c.fillStyle = '#ffb300';
+  [-6, 0, 6].forEach(yy => { c.beginPath(); c.arc(L, yy, 1.6, 0, Math.PI * 2); c.fill(); });
+
+  // Faros
+  c.fillStyle = '#f5fbff';
+  rr(c, L - 6, -A + 5, 5, 9, 2); c.fill();
+  rr(c, L - 6, A - 14, 5, 9, 2); c.fill();
+
+  // Calaveras traseras
+  c.fillStyle = '#d0141e';
+  rr(c, -L - 1, -A + 5, 4, 10, 1.5); c.fill();
+  rr(c, -L - 1, A - 15, 4, 10, 1.5); c.fill();
+
+  // Espejos
+  c.fillStyle = '#111';
+  rr(c, 24, -A - 4, 6, 6, 2); c.fill();
+  rr(c, 24, A - 2, 6, 6, 2); c.fill();
+}
+
+// ===================== Partículas de polvo/humo =====================
+function soltarPolvo(x, y, vx, vy, intensidad) {
+  const n = Math.floor(intensidad);
+  for (let i = 0; i < n; i++) {
+    particulas.push({
+      x: x + (Math.random() - 0.5) * 10,
+      y: y + (Math.random() - 0.5) * 10,
+      vx: vx * 0.25 + (Math.random() - 0.5) * 40,
+      vy: vy * 0.25 + (Math.random() - 0.5) * 40,
+      r: 6 + Math.random() * 8,
+      vida: 0,
+      max: 1.2 + Math.random() * 1.4,
+      tono: 170 + Math.random() * 40
+    });
+  }
+}
+
+function actualizarParticulas(dt) {
+  for (let i = particulas.length - 1; i >= 0; i--) {
+    const p = particulas[i];
+    p.vida += dt;
+    if (p.vida > p.max) { particulas.splice(i, 1); continue; }
+    p.x += p.vx * dt; p.y += p.vy * dt;
+    p.vx *= 0.96; p.vy *= 0.96;
+    p.r += 22 * dt;
+  }
+  if (particulas.length > 900) particulas.splice(0, particulas.length - 900);
+}
+
+function dibujarParticulas() {
+  particulas.forEach(p => {
+    const a = 0.35 * (1 - p.vida / p.max);
+    ctx.fillStyle = `rgba(${p.tono + 30},${p.tono + 10},${p.tono - 20},${a})`;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+    ctx.fill();
+  });
+}
+
+// ===================== Sonido del motor =====================
+let audio = null;
+function prenderSonido() {
+  const ac = new (window.AudioContext || window.webkitAudioContext)();
+  const osc = ac.createOscillator();
+  const osc2 = ac.createOscillator();
+  const filtro = ac.createBiquadFilter();
+  const ganancia = ac.createGain();
+  osc.type = 'sawtooth'; osc2.type = 'square';
+  filtro.type = 'lowpass'; filtro.frequency.value = 600;
+  ganancia.gain.value = 0.06;
+  osc.connect(filtro); osc2.connect(filtro);
+  filtro.connect(ganancia); ganancia.connect(ac.destination);
+  osc.start(); osc2.start();
+  audio = { ac, osc, osc2, ganancia };
+}
+function apagarSonido() {
+  if (!audio) return;
+  audio.ac.close();
+  audio = null;
+}
+
+// ===================== Ciclo principal =====================
+let ultimo = performance.now();
+
+function cuadro(ahora) {
+  let dt = (ahora - ultimo) / 1000;
+  ultimo = ahora;
+  if (dt > 0.05) dt = 0.05;
+
+  const vel = parseFloat(inVel.value);
+  const derrapeBase = parseFloat(inDerrape.value);
+  const radioObjetivo = radioMin + (radioMax - radioMin) * (inRadio.value / 100);
+  radioActual += (radioObjetivo - radioActual) * Math.min(1, dt * 2);
+
+  if (!pausado) {
+    tiempo += dt;
+    angulo += sentido * vel * dt;
+  }
+
+  // Posición de la camioneta sobre el círculo
+  const px = cx + Math.cos(angulo) * radioActual;
+  const py = cy + Math.sin(angulo) * radioActual;
+
+  // Dirección de avance (tangente) y orientación con derrape (la trompa apunta hacia adentro)
+  const dirVel = angulo + sentido * Math.PI / 2;
+  const tambaleo = Math.sin(tiempo * 3.1) * 0.08 + Math.sin(tiempo * 7.3) * 0.03;
+  const orientacion = dirVel + sentido * (derrapeBase + tambaleo);
+  const giroDelantero = -sentido * (0.35 + derrapeBase * 0.2); // contravolanteo
+
+  // Velocidad lineal (para el polvo)
+  const vLin = vel * radioActual;
+  const vx = Math.cos(dirVel) * vLin, vy = Math.sin(dirVel) * vLin;
+
+  // Posición de cada llanta en el mundo
+  const cosO = Math.cos(orientacion), sinO = Math.sin(orientacion);
+  const ruedasMundo = RUEDAS.map(r => ({
+    x: px + r.x * cosO - r.y * sinO,
+    y: py + r.x * sinO + r.y * cosO,
+    frente: r.frente
+  }));
+
+  if (!pausado) {
+    // Marcas de llanta
+    if (ruedasPrevias) {
+      ctxM.lineCap = 'round';
+      ruedasMundo.forEach((r, i) => {
+        const prev = ruedasPrevias[i];
+        ctxM.strokeStyle = r.frente ? 'rgba(45,28,14,0.10)' : 'rgba(35,20,8,0.22)';
+        ctxM.lineWidth = r.frente ? 10 : 14;
+        ctxM.beginPath(); ctxM.moveTo(prev.x, prev.y); ctxM.lineTo(r.x, r.y); ctxM.stroke();
+      });
+    }
+    ruedasPrevias = ruedasMundo;
+
+    // Polvo de las llantas traseras
+    ruedasMundo.forEach(r => {
+      if (!r.frente) soltarPolvo(r.x, r.y, -vx, -vy, vel * 1.3 + Math.random() * 1.5);
+    });
+
+    // Las marcas se desvanecen poco a poco
+    contadorFrames++;
+    if (contadorFrames % 12 === 0) {
+      ctxM.globalCompositeOperation = 'destination-out';
+      ctxM.fillStyle = 'rgba(0,0,0,0.035)';
+      ctxM.fillRect(0, 0, W, H);
+      ctxM.globalCompositeOperation = 'source-over';
+    }
+
+    actualizarParticulas(dt);
+  }
+
+  // Sonido según velocidad
+  if (audio) {
+    const f = pausado ? 35 : 45 + vel * 28 + Math.sin(tiempo * 9) * 4;
+    audio.osc.frequency.setTargetAtTime(f, audio.ac.currentTime, 0.05);
+    audio.osc2.frequency.setTargetAtTime(f * 0.5, audio.ac.currentTime, 0.05);
+  }
+
+  // Dibujar escena
+  ctx.clearRect(0, 0, W, H);
+
+  // Polvo detrás de la camioneta (las partículas más viejas)
+  ctx.save();
+  ctx.translate(px, py);
+  ctx.rotate(orientacion);
+  ctx.translate(-px, -py);
+  ctx.restore();
+
+  ctx.save();
+  ctx.translate(px, py);
+  ctx.rotate(orientacion);
+  dibujarCamioneta(ctx, giroDelantero);
+  ctx.restore();
+
+  dibujarParticulas();
+
+  requestAnimationFrame(cuadro);
+}
+
+// ===================== Controles =====================
+document.getElementById('btnDir').onclick = () => {
+  // Cambia el sentido manteniendo la camioneta en su lugar
+  sentido *= -1;
+  ruedasPrevias = null;
+};
+document.getElementById('btnPausa').onclick = e => {
+  pausado = !pausado;
+  e.target.textContent = pausado ? 'Seguir' : 'Pausa';
+  ruedasPrevias = null;
+};
+document.getElementById('btnLimpiar').onclick = () => ctxM.clearRect(0, 0, W, H);
+document.getElementById('color').oninput = e => colorCamioneta = e.target.value;
+document.getElementById('btnSonido').onclick = e => {
+  if (audio) { apagarSonido(); e.target.textContent = 'Motor: OFF'; }
+  else { prenderSonido(); e.target.textContent = 'Motor: ON'; }
+};
+document.getElementById('ocultar').onclick = e => {
+  const p = document.getElementById('panel');
+  const oculto = p.style.display === 'none';
+  p.style.display = oculto ? 'flex' : 'none';
+  e.target.textContent = oculto ? 'Ocultar panel' : 'Mostrar panel';
+};
+
+addEventListener('resize', () => { redimensionar(); ruedasPrevias = null; });
+redimensionar();
+radioActual = radioMin + (radioMax - radioMin) * 0.45;
+requestAnimationFrame(cuadro);
+</script>
+</body>
+</html>
